@@ -1,58 +1,66 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using UnityEngine;
+using UnityEngine.Events;
 
-public static class NetworkTime 
+public class NetworkTime : MonoBehaviour
 {
-    public static DateTime GetNetworkTime()
+    [SerializeField] private List<string> _ntpServers;
+    private DateTime _networkTime;
+    private bool _networkTimeSet;
+    public event UnityAction<DateTime, string> NewNetworkTime;
+    public void Synchronization()
     {
-        const string ntpServer = "pool.ntp.org";
-        // NTP message size - 16 bytes of the digest (RFC 2030)
-        var ntpData = new byte[48];
-
-        //Setting the Leap Indicator, Version Number and Mode values
-        ntpData[0] = 0x1B; //LI = 0 (no warning), VN = 3 (IPv4 only), Mode = 3 (Client Mode)
-
-        var addresses = Dns.GetHostEntry(ntpServer).AddressList;
-
-        //The UDP port number assigned to NTP is 123
-        var ipEndPoint = new IPEndPoint(addresses[0], 123);
-        //NTP uses UDP
-        using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+        _networkTimeSet = false;
+        foreach (var server in _ntpServers)
         {
-            socket.Connect(ipEndPoint);
-
-            //Stops code hang if NTP is blocked
-            socket.ReceiveTimeout = 3000;
-
-            socket.Send(ntpData);
-            socket.Receive(ntpData);
+            Thread potok = new(new ParameterizedThreadStart(GetNetworkTime));
+            potok.Start(server);
         }
 
-        //Offset to get to the "Transmit Timestamp" field (time at which the reply 
-        //departed the server for the client, in 64-bit timestamp format."
-        const byte serverReplyTime = 40;
-
-        //Get the seconds part
-        ulong intPart = BitConverter.ToUInt32(ntpData, serverReplyTime);
-
-        //Get the seconds fraction
-        ulong fractPart = BitConverter.ToUInt32(ntpData, serverReplyTime + 4);
-
-        //Convert From big-endian to little-endian
-        intPart = SwapEndianness(intPart);
-        fractPart = SwapEndianness(fractPart);
-
-        var milliseconds = (intPart * 1000) + ((fractPart * 1000) / 0x100000000L);
-
-        //**UTC** time
-        var networkDateTime = (new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc)).AddMilliseconds((long)milliseconds);
-
-        return networkDateTime.ToLocalTime();
     }
 
-    // stackoverflow.com/a/3294698/162671
+#nullable enable
+    private void GetNetworkTime(object? server)
+    {
+        if (server is string ntpServer)
+        {
+            _networkTime = new DateTime();
+            var ntpData = new byte[48];
+            ntpData[0] = 0x1B;
+            try
+            {
+                var addresses = Dns.GetHostEntry(ntpServer).AddressList;
+                var ipEndPoint = new IPEndPoint(addresses[0], 123);
+                using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                socket.Connect(ipEndPoint);
+                socket.ReceiveTimeout = 3000;
+                socket.Send(ntpData);
+                socket.Receive(ntpData);
+            }
+            catch
+            {
+                return;
+            }
+            const byte serverReplyTime = 40;
+            ulong intPart = BitConverter.ToUInt32(ntpData, serverReplyTime);
+            ulong fractPart = BitConverter.ToUInt32(ntpData, serverReplyTime + 4);
+            intPart = SwapEndianness(intPart);
+            fractPart = SwapEndianness(fractPart);
+            var milliseconds = (intPart * 1000) + ((fractPart * 1000) / 0x100000000L);
+            var networkDateTime = (new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc)).AddMilliseconds((long)milliseconds);
+            _networkTime = networkDateTime.ToLocalTime();
+            if (!_networkTimeSet)
+            {
+                _networkTimeSet = true;
+                NewNetworkTime?.Invoke(_networkTime, ntpServer);
+            }
+        }
+
+    }
     static uint SwapEndianness(ulong x)
     {
         return (uint)(((x & 0x000000ff) << 24) +
@@ -61,3 +69,4 @@ public static class NetworkTime
                        ((x & 0xff000000) >> 24));
     }
 }
+
