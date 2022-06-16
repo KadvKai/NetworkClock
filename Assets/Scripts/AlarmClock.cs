@@ -11,10 +11,15 @@ public class AlarmClock : MonoBehaviour
     [SerializeField] private TMP_InputField _alarmMinute;
     [SerializeField] private AlarmClockArrow _alarmClockArrow;
     [SerializeField] private GameObject _optionsPanel;
+    [SerializeField] private GameObject _wakeUpCall;
+    [SerializeField] private ScreenOrientationIndicator _indicator;
     private int _currentHour;
     private int _currentMinute;
     private int _currentAlarmHour = 0;
     private int _currentAlarmMinute = 0;
+    private Vector2 _startReferenceResolution;
+    private CanvasScaler _canvasScaler;
+    private readonly int _canvasScalerModifier=1000;
 
     private void OnEnable()
     {
@@ -29,6 +34,8 @@ public class AlarmClock : MonoBehaviour
 
     private void Start()
     {
+        _canvasScaler = _indicator.GetComponent<CanvasScaler>();
+        _startReferenceResolution = _canvasScaler.referenceResolution;
         _alarmHour.text = _currentAlarmHour.ToString("00");
         _alarmMinute.text = _currentAlarmMinute.ToString("00");
     }
@@ -48,7 +55,7 @@ public class AlarmClock : MonoBehaviour
     {
         if (_currentHour == _currentAlarmHour && _currentMinute == _currentAlarmMinute)
         {
-            Debug.Log("Будильник");
+            _wakeUpCall.SetActive(true);
         }
     }
 
@@ -115,10 +122,30 @@ public class AlarmClock : MonoBehaviour
     {
         if (enable)
         {
-            
+            if (_indicator.OrientationLandscape)
+            {
+                _canvasScaler.referenceResolution = _startReferenceResolution + Vector2.right * _canvasScalerModifier;
+                _clock.transform.localPosition = new Vector2(500, 0);
+                _optionsPanel.transform.localPosition = new Vector2(-700, 0);
+            }
+            else
+            {
+                _canvasScaler.referenceResolution = _startReferenceResolution + Vector2.up * _canvasScalerModifier;
+                _clock.transform.localPosition = new Vector2(0, 500);
+                _optionsPanel.transform.localPosition = new Vector2(0, -700);
+            }
+        }
+        else
+        {
+            _canvasScaler.referenceResolution = _startReferenceResolution;
+            _clock.transform.localPosition = new Vector2(0, 0);
         }
         _optionsPanel.SetActive(enable);
-    } 
+        _alarmClockArrow.enabled = enable;
+    }
+
+   
+
     private void OnDisable()
     {
         _alarmClockArrow.gameObject.SetActive(false);
